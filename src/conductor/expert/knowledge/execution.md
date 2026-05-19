@@ -1,0 +1,629 @@
+# Workflow Execution Guide
+
+Complete reference for running, validating, and debugging Conductor workflows.
+
+## CLI Commands
+
+### conductor run
+
+Execute a workflow:
+
+```bash
+conductor run <workflow.yaml> [OPTIONS]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--input`, `-i NAME=VALUE` | Workflow input (repeatable) |
+| `--input.NAME=VALUE` | Alternative input syntax |
+| `--metadata`, `-m KEY=VALUE` | Workflow metadata, merged on top of YAML `metadata:` (repeatable; values stay strings) |
+| `--provider`, `-p PROVIDER` | Override provider (`copilot`, `claude`, `openai-agents`) |
+| `--dry-run` | Show execution plan only |
+| `--skip-gates` | Auto-select first option at human gates |
+| `--web` | Start real-time web dashboard |
+| `--web-bg` | Run in background, print dashboard URL, exit |
+| `--web-port PORT` | Port for web dashboard (0 = auto) |
+| `--no-interactive` | Disable Esc-to-interrupt capability |
+| `--log-file`, `-l PATH` | Write full debug output to file (`auto` for auto-generated) |
+| `--workspace-instructions` | Auto-discover `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, and `.github/instructions/**/*.instructions.md` (only files marked `applyTo: "**"`) and prepend them to every agent prompt |
+| `--instructions PATH` | Path to a specific instruction file to prepend (repeatable) |
+
+**Global options** (before the subcommand):
+
+| Option | Description |
+|--------|-------------|
+| `--quiet`, `-q` | Minimal output: agent lifecycle and routing only |
+| `--silent`, `-s` | No progress output. Only JSON result on stdout |
+| `--version`, `-v` | Show version and exit |
+
+> **Note:** Full output is shown by default (prompts, tool calls, reasoning). Use `-q` for minimal output or `-s` for JSON-only. `--quiet` and `--silent` are mutually exclusive.
+
+**Examples:**
+
+```bash
+# Standard run (full output by default)
+conductor run workflow.yaml --input question="Hello"
+
+# Quiet mode (lifecycle + routing only)
+conductor -q run workflow.yaml --input question="Hello"
+
+# Silent mode (JSON result only, no progress)
+conductor -s run workflow.yaml --input question="Hello"
+
+# Log full debug output to auto-generated file
+conductor run workflow.yaml --log-file auto
+
+# Silent terminal + full file logging
+conductor -s run workflow.yaml --log-file auto
+
+# Multiple inputs
+conductor run workflow.yaml -i topic="AI" -i depth="detailed"
+
+# Skip human gates for automation
+conductor run workflow.yaml --skip-gates
+
+# Dry run to preview execution plan
+conductor run workflow.yaml --dry-run
+
+# Override provider
+conductor run workflow.yaml -p claude
+
+# Attach metadata (merged on top of YAML metadata; values are strings)
+conductor run workflow.yaml -m tracker=ado -m work_item_id=42
+
+# Auto-discover workspace instructions and prepend to all prompts
+conductor run workflow.yaml --workspace-instructions
+
+# Prepend explicit instruction file(s)
+conductor run workflow.yaml --instructions AGENTS.md --instructions notes.md
+
+# Start real-time web dashboard
+conductor run workflow.yaml --web --input question="Hello"
+
+# Background mode: prints URL and exits immediately
+conductor run workflow.yaml --web-bg --input question="Hello"
+```
+
+The `--web` flag opens a browser dashboard with a DAG visualization showing live agent status, streaming reasoning/tool calls, and an agent detail panel. The `--web-bg` flag forks a background process and exits immediately. `--web` and `--web-bg` are mutually exclusive.
+
+Background workflows can be stopped with `conductor stop` (see below) or via the stop button in the web dashboard.
+
+### conductor stop
+
+Stop background workflow processes launched with `--web-bg`:
+
+```bash
+conductor stop [OPTIONS]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--port PORT` | Stop the workflow running on this specific port |
+| `--all` | Stop all background conductor workflows |
+
+With no options, lists running workflows and auto-stops if exactly one is found.
+
+**Examples:**
+
+```bash
+# Stop the only running background workflow
+conductor stop
+
+# Stop a specific workflow by port
+conductor stop --port 8080
+
+# Stop all running background workflows
+conductor stop --all
+```
+
+### conductor update
+
+Check for the latest version of Conductor and (optionally) launch the installer:
+
+```bash
+conductor update            # Check + print install command
+conductor update --apply    # Check + launch installer (then exit)
+```
+
+The command:
+
+1. Fetches the latest release from the GitHub Releases API.
+2. Compares the remote version with the locally installed version.
+3. **Default:** prints the OS-appropriate `install.sh` / `install.ps1` one-liner you can paste into a fresh shell.
+4. **`--apply`:** spawns the install script as a fully detached process and exits the current `conductor` so file locks release. On Windows the installer opens in a new console window; on POSIX `os.execvpe` replaces the process. This is the only way to upgrade-while-running cleanly on Windows (in-process self-upgrade was removed because the running interpreter sits inside the venv that `uv tool install --force` is trying to recreate).
+5. Clears the update-check cache on success.
+
+If already up to date, prints a confirmation and exits.
+
+The legacy `--force` flag is accepted as a no-op for backward compatibility.
+
+**Passive update hints:** On every CLI invocation, Conductor checks for updates (cached 24h, 2-second timeout) and prints a one-line hint if a newer version is available. Suppressed when stderr is not a TTY, when `--silent` is set, when the subcommand is `update`, or when `CONDUCTOR_NO_UPDATE_CHECK=1`.
+
+### conductor resume
+
+Resume a workflow from a checkpoint after failure. Run-flag parity: most `run` flags work identically.
+
+```bash
+conductor resume <workflow.yaml> [OPTIONS]
+conductor resume --from <checkpoint.json> [OPTIONS]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--from PATH` | Resume from a specific checkpoint file |
+| `--provider`, `-p PROVIDER` | Override provider for the resumed run |
+| `--metadata`, `-m KEY=VALUE` | Workflow metadata, merged on top of YAML metadata (repeatable) |
+| `--skip-gates` | Auto-select first option at human gates |
+| `--log-file`, `-l PATH` | Write debug output to file |
+| `--no-interactive` | Disable Esc-to-interrupt |
+| `--web` | Start real-time web dashboard for the resumed run |
+| `--web-port PORT` | Port for the dashboard (0 = auto) |
+| `--web-bg` | Fork a detached resume + dashboard process and exit |
+
+`--web` and `--web-bg` are mutually exclusive. The dashboard only shows events from the resumed agent forward — events emitted in the original process before the checkpoint are not replayed.
+
+Intentionally **not** mirrored on `resume`: `--input` / `--workspace-instructions` / `--instructions` (restored from the checkpoint), and `--dry-run` (incompatible with mid-run resumption).
+
+When a workflow fails, Conductor automatically saves a checkpoint to `$TMPDIR/conductor/checkpoints/`. The checkpoint contains all prior agent outputs, the workflow state, and the resolved `instructions_preamble`, enabling seamless resumption from the failed agent.
+
+**Examples:**
+
+```bash
+conductor resume workflow.yaml                                            # latest checkpoint
+conductor resume --from /tmp/conductor/checkpoints/my-workflow-20260303-153000.json
+conductor resume workflow.yaml --provider claude
+conductor resume workflow.yaml --metadata tracker=ado -m work_item_id=42
+conductor resume workflow.yaml --web
+conductor resume workflow.yaml --web-bg
+conductor resume workflow.yaml --log-file auto
+```
+
+**Behavior:**
+- If the workflow file has changed since the checkpoint was saved, a warning is displayed but resumption proceeds
+- Execution resumes from the exact agent that failed
+- All prior agent outputs and the workspace `instructions_preamble` are restored from the checkpoint
+
+### conductor checkpoints
+
+List available workflow checkpoints:
+
+```bash
+conductor checkpoints [workflow.yaml]
+```
+
+Shows all checkpoint files with metadata: workflow name, timestamp, failed agent, and error type. Optionally filter by workflow file.
+
+**Examples:**
+
+```bash
+# List all checkpoints
+conductor checkpoints
+
+# List checkpoints for a specific workflow
+conductor checkpoints workflow.yaml
+```
+
+### conductor validate
+
+Validate without executing:
+
+```bash
+conductor validate <workflow.yaml>
+```
+
+Performs both schema and **semantic** checks:
+
+- YAML syntax
+- Required fields and schema structure (unknown fields on `AgentDef`, `ParallelGroup`, `ForEachDef`, and `WorkflowConfig` are rejected, not silently dropped)
+- Agent references and route targets
+- Route reachability and `$end` reachability
+- Template syntax
+- Parallel group agent references
+- For-each `source` format and reserved names
+- Stale agent references and undeclared explicit-mode dependencies in `prompt`, `system_prompt`, `command`, `args`, `working_dir`, `input_mapping`, parallel-group inputs, and workflow `output:` templates
+- Warning when an agent defines `system_prompt` but no `prompt:` (portability hazard since the Claude provider drops `system_prompt`)
+
+The success summary table includes Parallel Groups and For-each Groups counts.
+
+### conductor show
+
+Show inputs, agents, parallel/for-each groups, and outputs for a workflow without running it. Accepts a local file path or a registry reference.
+
+```bash
+conductor show <workflow.yaml | workflow_ref>
+```
+
+**Examples:**
+
+```bash
+conductor show ./my-workflow.yaml
+conductor show qa-bot
+conductor show qa-bot@my-registry@1.0.0
+```
+
+Prints a sample `conductor run …` command pre-populated with the discovered inputs.
+
+### conductor replay
+
+Replay a recorded workflow run in the dashboard with a timeline scrubber:
+
+```bash
+conductor replay <log_file> [--web-port PORT]
+```
+
+The log file can be:
+- A JSON array downloaded from the dashboard (`GET /api/logs`)
+- A JSONL file written by the `EventLogSubscriber` (e.g. `$TMPDIR/conductor/conductor-<workflow>-<timestamp>.events.jsonl`)
+
+```bash
+conductor replay conductor-logs.json
+conductor replay /tmp/conductor/conductor-my-workflow-20260101-120000.events.jsonl
+```
+
+### conductor registry
+
+Manage workflow registries — named sources of shared workflows (GitHub repos or local directories).
+
+```bash
+conductor registry <subcommand> [OPTIONS]
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| `list [name]` | List registries, or workflows in a specific registry (also shows latest tags) |
+| `add <name> <source>` | Add a registry. Options: `--type github\|path` (default github), `--default` |
+| `remove <name>` | Remove a registry |
+| `set-default <name>` | Set the default registry |
+| `update [name]` | Refresh index and re-resolve latest versions |
+| `show <ref>` | Show metadata for a workflow reference |
+
+**Examples:**
+
+```bash
+conductor registry add official myorg/conductor-workflows --default
+conductor registry add local /path/to/workflows --type path
+conductor registry list                        # show configured registries
+conductor registry list official               # show workflows in a registry
+conductor registry set-default official
+conductor registry update                      # refresh all indexes
+conductor registry show qa-bot@official@1.0.0  # show workflow metadata
+```
+
+**Running from a registry:**
+
+```bash
+conductor run qa-bot                     # latest from default registry
+conductor run qa-bot@official            # latest from named registry
+conductor run qa-bot@official@1.2.3      # explicit version
+conductor run qa-bot@@1.2.3              # explicit version from default registry
+conductor run sdd/plan#main              # branch/tag/SHA via "#ref" suffix
+conductor run sdd/plan#abc1234           # explicit commit
+```
+
+`latest` (and bare `name@registry` refs without a `#ref`) resolve to the **default branch HEAD**, not the newest tag — pin explicitly with `workflow#v1.2.3` for releases. Registry workflows are cached locally at `~/.conductor/cache/registries/`. Explicit refs are immutable; bare names re-resolve on `conductor registry update`.
+
+## Execution Flow
+
+1. **Load** — Parse YAML and validate structure
+2. **Initialize** — Set up provider(s) and MCP servers
+3. **Execute** — Run agents following routes:
+   - Sequential agents execute one at a time
+   - Parallel groups execute agents concurrently with context snapshots
+   - For-each groups spawn N agent instances from runtime array
+4. **Collect** — Gather outputs per schema
+5. **Return** — Output final result as JSON
+
+### Iteration Counting
+
+- Each agent execution counts as 1 iteration
+- Parallel agents count individually (3 parallel agents = 3 iterations)
+- For-each instances each count as 1 iteration
+- Loop-back patterns increment the counter on each cycle
+
+## Cost Tracking
+
+Conductor tracks token usage and costs automatically:
+
+```yaml
+cost:
+  show_per_agent: true    # Per-agent cost breakdown
+  show_summary: true      # Total cost summary at end
+  pricing:                # Override default pricing
+    custom-model:
+      input_per_mtok: 3.0
+      output_per_mtok: 15.0
+      cache_read_per_mtok: 0.3
+      cache_write_per_mtok: 3.75
+```
+
+Output includes input/output token counts and estimated costs per agent and in total.
+
+## Debugging
+
+### Default Output
+
+Full output is shown by default:
+
+```bash
+conductor run workflow.yaml --input question="test"
+```
+
+Shows:
+- Agent execution order
+- Full prompt content (untruncated)
+- Output received
+- Route decisions
+- Tool call arguments and reasoning
+- Token usage and costs per agent
+
+Use `--quiet` for minimal output (lifecycle + routing only) or `--silent` for JSON-only.
+
+### Log File
+
+```bash
+conductor run workflow.yaml --log-file auto
+conductor -s run workflow.yaml --log-file debug.log
+```
+
+Capture full debug output to a file. Combine with `--silent` for quiet terminal with full logging. Auto mode generates files in `$TMPDIR/conductor/`.
+
+### Dry Run
+
+```bash
+conductor run workflow.yaml --dry-run
+```
+
+Preview execution plan without running agents. Shows the workflow graph, agent order, and configuration.
+
+### Web Dashboard
+
+```bash
+conductor run workflow.yaml --web --input question="test"
+```
+
+Real-time browser dashboard for visualizing and interacting with workflows as they run:
+
+- **Interactive DAG graph** — Zoomable, draggable workflow graph with animated edges showing execution flow and conditional routing
+- **Live agent streaming** — Watch agent reasoning, tool calls, and outputs stream in real-time as each step executes
+- **Three-pane layout** — Resizable panels for the graph, agent detail, and a tabbed output pane (Log, Activity, Output)
+- **In-browser human gates** — Respond to human-in-the-loop decisions directly in the dashboard
+- **Per-node detail** — Click any node to see its prompt, metadata (model, tokens, cost), activity stream, and output
+- **Background mode** — Run with `--web-bg` to start in background, print URL, and exit
+
+```bash
+# Background mode: prints dashboard URL and exits
+conductor run workflow.yaml --web-bg --input question="test"
+
+# Stop background workflow
+conductor stop
+```
+
+### Validate First
+
+```bash
+conductor validate workflow.yaml
+```
+
+Catch configuration errors before execution of new workflows. Reports agent count, parallel groups, for-each groups, human gates, and more.
+
+### Check Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Workflow error |
+| 2 | Validation error |
+| 3 | Timeout |
+| 4 | Max iterations exceeded |
+
+## Common Errors
+
+### "Missing required input"
+
+```
+Error: Missing required input: question
+```
+
+**Fix:** Provide all required inputs:
+```bash
+conductor run workflow.yaml --input question="value"
+```
+
+### "Unknown agent: X"
+
+```
+Error: Route references unknown agent: reviewer
+```
+
+**Fix:** Check agent/group name spelling matches in routes.
+
+### "Unreachable agent"
+
+```
+Error: Agent 'helper' is not reachable from entry_point
+```
+
+**Fix:** Add route to the agent or remove if unused.
+
+### "Max iterations exceeded"
+
+```
+Error: Workflow exceeded max_iterations (10)
+```
+
+**Fix:** Increase limit or fix loop condition:
+```yaml
+limits:
+  max_iterations: 50  # Max: 500
+```
+
+### "Timeout"
+
+```
+Error: Workflow timed out after 600 seconds
+```
+
+**Fix:** Increase timeout:
+```yaml
+limits:
+  timeout_seconds: 1200
+```
+
+### Template Errors
+
+```
+Error: Undefined variable 'agent_name' in template
+```
+
+**Fix:** Check variable exists or use conditional:
+```jinja2
+{% if agent_name is defined %}
+{{ agent_name.output.field }}
+{% endif %}
+```
+
+### "Parallel groups must contain at least 2 agents"
+
+**Fix:** Add at least 2 agents to the parallel group.
+
+### "Invalid source format" (for-each)
+
+**Fix:** Use dotted path with 3+ parts: `agent_name.output.field`
+
+### "Loop variable conflicts with reserved name"
+
+**Fix:** Choose a different `as` name. Reserved: `workflow`, `context`, `output`, `_index`, `_key`
+
+## Human Gates
+
+When workflow reaches a human gate:
+
+1. **Display** — Shows prompt and options in terminal
+2. **Wait** — Pauses for user selection
+3. **Capture** — Records selected value and optional text input (prompt_for)
+4. **Route** — Continues to the route specified on the selected option
+
+### Skip Gates for Automation
+
+```bash
+conductor run workflow.yaml --skip-gates
+```
+
+Auto-selects the first option at each gate.
+
+## Interactive Interrupt
+
+During execution, press **Esc** or **Ctrl+G** to pause the workflow. An interactive menu appears with these actions:
+
+| Action | Description |
+|--------|-------------|
+| **Continue with guidance** | Provide text guidance that is appended to subsequent agent prompts |
+| **Skip to agent** | Jump to a specific agent in the workflow |
+| **Stop** | Stop the workflow entirely |
+| **Cancel** | Resume execution as-is |
+
+Guidance text accumulates across multiple interrupts and is injected into agent context.
+
+Disable with `--no-interactive`. In `--skip-gates` mode, interrupts auto-cancel.
+
+## Checkpoint & Resume
+
+When a workflow fails, Conductor automatically saves a checkpoint containing:
+- All completed agent outputs
+- Current workflow state and iteration count
+- Workflow file hash (to detect changes)
+- Failure details (agent, error type, message)
+
+Checkpoints are stored in `$TMPDIR/conductor/checkpoints/`.
+
+```bash
+# List available checkpoints
+conductor checkpoints
+
+# Resume from latest checkpoint for a workflow
+conductor resume workflow.yaml
+
+# Resume from a specific checkpoint file
+conductor resume --from /tmp/conductor/checkpoints/my-workflow-20260303-153000.json
+```
+
+If the workflow file has changed since the checkpoint was saved, a warning is displayed but resumption proceeds.
+
+## Provider Configuration
+
+### Override Provider
+
+```bash
+conductor run workflow.yaml -p claude          # Use Claude for all agents
+conductor run workflow.yaml -p copilot         # Use Copilot (default)
+conductor run workflow.yaml -p openai-agents   # Use OpenAI Agents SDK
+```
+
+### Per-Agent Provider Override
+
+Set `provider` on individual agents in YAML for multi-provider workflows:
+
+```yaml
+agents:
+  - name: fast_task
+    provider: claude
+    model: claude-haiku-4.5
+  - name: complex_task
+    # Uses workflow default provider
+    model: gpt-5.2
+```
+
+## Output Handling
+
+Workflow output is JSON:
+
+```json
+{
+  "answer": "Python is a programming language...",
+  "confidence": 0.95
+}
+```
+
+### Capture Output
+
+```bash
+# Save to file
+conductor run workflow.yaml --input q="test" > output.json
+
+# Parse with jq
+conductor run workflow.yaml --input q="test" | jq '.answer'
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_TOKEN` | GitHub Copilot authentication |
+| `ANTHROPIC_API_KEY` | Claude provider API key |
+| `OPENAI_API_KEY` | OpenAI Agents provider API key (when `provider: openai-agents`) |
+| `CONDUCTOR_LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `CONDUCTOR_NO_UPDATE_CHECK` | Set to `1` to suppress the passive update-check hint |
+
+Environment variables in YAML configs support `${VAR}` and `${VAR:-default}` interpolation syntax.
+
+## Performance Tips
+
+1. **Use appropriate models** — Smaller models (Haiku) for simple tasks, larger (Sonnet/Opus) for complex reasoning
+2. **Use `explicit` context mode** — Reduces token usage by only passing declared inputs
+3. **Set timeouts** — Prevent runaway workflows with `limits.timeout_seconds`
+4. **Use parallel groups** — Run independent agents concurrently
+5. **Use for-each groups** — Process arrays in parallel with `max_concurrent` batching
+6. **Set `max_tokens`** — Limit output length to save costs (especially with Claude)
+7. **Use per-agent provider** — Pick the best model/provider for each task
+
+## Debugging Checklist
+
+1. [ ] Run `conductor validate workflow.yaml`
+2. [ ] Check all agent/group names match between definition and routes
+3. [ ] Verify entry_point exists as an agent, parallel group, or for-each group
+4. [ ] Ensure all paths lead to `$end`
+5. [ ] Test with `--dry-run` first
+6. [ ] Check template variables are defined before use
+7. [ ] Verify for-each `source` resolves to an array
+8. [ ] Check parallel groups have 2+ agents
+9. [ ] Review cost output for unexpected token usage

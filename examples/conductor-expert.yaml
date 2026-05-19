@@ -1,0 +1,82 @@
+# Conductor Expert Knowledge Base
+#
+# This example demonstrates the `conductor_expert` opt-in flag, which
+# augments agent prompts with Conductor's bundled knowledge base. This
+# gives agents deep understanding of Conductor's YAML schema, execution
+# model, authoring patterns, and CLI commands — enabling them to
+# evaluate, improve, debug, or generate Conductor workflows.
+#
+# The knowledge base is injected as a prompt preamble wrapped in
+# <conductor_knowledge> tags, positioned after workspace instructions
+# but before the agent's own prompt.
+#
+# Two levels of opt-in:
+#   1. Per-agent:   `conductor_expert: true` on an individual agent
+#   2. Workflow-wide: `runtime.conductor_expert: true` (all agents)
+#
+# Per-agent `conductor_expert: false` can disable it even when the
+# workflow-wide default is true.
+#
+# Usage:
+#   conductor run examples/conductor-expert.yaml \
+#     --input workflow_yaml="$(cat examples/simple-qa.yaml)"
+
+workflow:
+  name: conductor-expert
+  description: Demonstrates Conductor Expert knowledge base injection
+  version: "1.0.0"
+  entry_point: reviewer
+
+  runtime:
+    provider: copilot
+
+  input:
+    workflow_yaml:
+      type: string
+      required: true
+      description: The YAML content of a Conductor workflow to review
+
+agents:
+  - name: reviewer
+    description: Reviews a Conductor workflow for correctness and best practices
+    model: gpt-5.2
+    # This agent gets the full Conductor knowledge base injected
+    conductor_expert: true
+    prompt: |
+      Review the following Conductor workflow YAML for correctness,
+      best practices, and potential improvements.
+
+      Check for:
+      - Valid schema usage (field names, types, constraints)
+      - Appropriate context mode selection
+      - Route condition correctness
+      - Sensible failure modes for parallel/for-each groups
+      - Output schema design
+      - Missing route fallbacks or unbounded loops
+
+      Workflow YAML:
+      ```yaml
+      {{ workflow.input.workflow_yaml }}
+      ```
+
+      Provide a structured review with:
+      1. Issues found (with severity: error, warning, suggestion)
+      2. Recommended improvements
+      3. Overall assessment
+    output:
+      issues:
+        type: string
+        description: List of issues found with severity levels
+      improvements:
+        type: string
+        description: Recommended improvements
+      assessment:
+        type: string
+        description: Overall assessment of the workflow quality
+    routes:
+      - to: $end
+
+output:
+  issues: "{{ reviewer.output.issues }}"
+  improvements: "{{ reviewer.output.improvements }}"
+  assessment: "{{ reviewer.output.assessment }}"

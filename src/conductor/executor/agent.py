@@ -98,6 +98,7 @@ class AgentExecutor:
         provider: AgentProvider,
         workflow_tools: list[str] | None = None,
         instructions_preamble: str | None = None,
+        conductor_expert_default: bool = False,
     ) -> None:
         """Initialize the AgentExecutor.
 
@@ -106,10 +107,15 @@ class AgentExecutor:
             workflow_tools: Tools defined at workflow level. Defaults to empty list.
             instructions_preamble: Optional workspace instructions text to prepend
                 to every agent's rendered prompt.
+            conductor_expert_default: Workflow-level default for the Conductor
+                Expert knowledge base. When True, all agents executed by this
+                executor receive the knowledge base unless the agent explicitly
+                sets ``conductor_expert: false``.
         """
         self.provider = provider
         self.workflow_tools = workflow_tools or []
         self.instructions_preamble = instructions_preamble
+        self._conductor_expert_default = conductor_expert_default
         self.renderer = TemplateRenderer()
 
     async def execute(
@@ -157,9 +163,10 @@ class AgentExecutor:
         # Render prompt with context
         rendered_prompt = self.renderer.render(agent.prompt, context)
 
-        # Prepend workspace instructions preamble if available
-        if self.instructions_preamble:
-            rendered_prompt = self.instructions_preamble + rendered_prompt
+        # Prepend prompt prefix (workspace instructions + optional expert knowledge)
+        prefix = self._build_prompt_prefix(agent)
+        if prefix:
+            rendered_prompt = prefix + rendered_prompt
 
         # Append user guidance section if provided
         if guidance_section:
@@ -245,12 +252,41 @@ class AgentExecutor:
             context: Context for prompt rendering.
 
         Returns:
-            Rendered prompt string with workspace instructions prepended if configured.
+            Rendered prompt string with workspace instructions and optional
+            expert knowledge prepended if configured.
 
         Raises:
             TemplateError: If prompt rendering fails.
         """
         rendered = self.renderer.render(agent.prompt, context)
-        if self.instructions_preamble:
-            rendered = self.instructions_preamble + rendered
+        prefix = self._build_prompt_prefix(agent)
+        if prefix:
+            rendered = prefix + rendered
         return rendered
+
+    def _should_inject_expert(self, agent: AgentDef) -> bool:
+        """Determine whether to inject Conductor Expert knowledge for an agent.
+
+        Resolution order:
+        - If the agent explicitly sets ``conductor_expert``, use that value.
+        - Otherwise, fall back to the workflow-level default.
+        """
+        if agent.conductor_expert is not None:
+            return agent.conductor_expert
+        return self._conductor_expert_default
+
+    def _build_prompt_prefix(self, agent: AgentDef) -> str:
+        """Build the prefix to prepend before an agent's rendered prompt.
+
+        Combines workspace instructions and optional Conductor Expert
+        knowledge into a single prefix string. This helper is shared by
+        :meth:`execute` and :meth:`render_prompt` to keep them in sync.
+        """
+        parts: list[str] = []
+        if self.instructions_preamble:
+            parts.append(self.instructions_preamble)
+        if self._should_inject_expert(agent):
+            from conductor.expert.loader import load_expert_knowledge
+
+            parts.append(load_expert_knowledge())
+        return "".join(parts)

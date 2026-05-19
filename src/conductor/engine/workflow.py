@@ -367,6 +367,9 @@ class WorkflowEngine:
         # Workspace instructions preamble (inherited by sub-workflows)
         self._instructions_preamble = instructions_preamble
 
+        # Conductor Expert default (workflow-level opt-in)
+        self._conductor_expert_default = config.workflow.runtime.conductor_expert
+
         # For backward compatibility, create a default executor with single provider
         # This is used when registry is None
         if provider is not None:
@@ -374,6 +377,7 @@ class WorkflowEngine:
                 provider,
                 workflow_tools=config.tools,
                 instructions_preamble=self._instructions_preamble,
+                conductor_expert_default=self._conductor_expert_default,
             )
             self.provider = provider  # Keep for backward compatibility
         else:
@@ -575,6 +579,7 @@ class WorkflowEngine:
                 provider,
                 workflow_tools=self.config.tools,
                 instructions_preamble=self._instructions_preamble,
+                conductor_expert_default=self._conductor_expert_default,
             )
         elif self.executor is not None:
             # Single provider mode (backward compatibility)

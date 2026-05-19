@@ -671,6 +671,29 @@ class AgentDef(BaseModel):
           effort: high
     """
 
+    conductor_expert: bool | None = None
+    """Opt-in to the Conductor Expert knowledge base for this agent.
+
+    When ``True``, the agent's prompt is augmented with Conductor's bundled
+    knowledge base covering the YAML schema, execution model, authoring
+    patterns, and CLI commands. This enables agents to evaluate, improve,
+    debug, or generate Conductor workflows with accurate, version-matched
+    knowledge.
+
+    - ``None`` (default): inherit from ``workflow.runtime.conductor_expert``
+    - ``True``: enable regardless of the workflow default
+    - ``False``: disable regardless of the workflow default
+
+    Only applies to provider-backed agents (type='agent' or None).
+
+    Example YAML::
+
+        agents:
+          - name: workflow_reviewer
+            conductor_expert: true
+            prompt: "Review this workflow for correctness..."
+    """
+
     @field_validator("timeout")
     @classmethod
     def validate_timeout(cls, v: int | None) -> int | None:
@@ -695,6 +718,8 @@ class AgentDef(BaseModel):
                 raise ValueError("human_gate agents cannot have 'max_depth'")
             if self.reasoning is not None:
                 raise ValueError("human_gate agents cannot have 'reasoning'")
+            if self.conductor_expert is not None:
+                raise ValueError("human_gate agents cannot have 'conductor_expert'")
             if self.timeout_seconds is not None:
                 raise ValueError("human_gate agents cannot have 'timeout_seconds'")
         elif self.type == "script":
@@ -731,6 +756,8 @@ class AgentDef(BaseModel):
                 raise ValueError("script agents cannot have 'max_depth'")
             if self.reasoning is not None:
                 raise ValueError("script agents cannot have 'reasoning'")
+            if self.conductor_expert is not None:
+                raise ValueError("script agents cannot have 'conductor_expert'")
             if self.timeout_seconds is not None:
                 raise ValueError(
                     "script agents cannot have 'timeout_seconds' "
@@ -761,6 +788,8 @@ class AgentDef(BaseModel):
                 raise ValueError("workflow agents cannot have 'retry'")
             if self.dialog is not None:
                 raise ValueError("workflow agents cannot have 'dialog'")
+            if self.conductor_expert is not None:
+                raise ValueError("workflow agents cannot have 'conductor_expert'")
             if self.timeout_seconds is not None:
                 raise ValueError("workflow agents cannot have 'timeout_seconds'")
         else:
@@ -916,6 +945,24 @@ class RuntimeConfig(BaseModel):
     match the supported prefix list; Copilot consults the SDK's advertised
     ``supported_reasoning_efforts`` (when available) and otherwise allows
     the request through to the SDK.
+    """
+
+    conductor_expert: bool = False
+    """Workflow-wide default for the Conductor Expert knowledge base.
+
+    When ``True``, all provider-backed agents in the workflow receive the
+    bundled Conductor knowledge base (YAML schema, execution model,
+    authoring patterns, CLI commands) prepended to their prompts.
+
+    Individual agents can override this with their own
+    ``conductor_expert`` field (``True`` to force-enable, ``False`` to
+    force-disable).
+
+    Example YAML::
+
+        workflow:
+          runtime:
+            conductor_expert: true
     """
 
 

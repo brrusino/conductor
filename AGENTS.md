@@ -76,6 +76,10 @@ make validate-examples    # validate all examples
   - `loader.py` - YAML parsing with environment variable resolution (${VAR:-default}) and `!file` tag support
   - `validator.py` - Cross-reference validation (agent names, routes, parallel groups)
 
+- **expert/**: Conductor Expert knowledge base (opt-in, bundled docs)
+  - `loader.py` - Loads and caches bundled reference docs, wraps in `<conductor_knowledge>` tags
+  - `knowledge/` - Bundled markdown reference docs (yaml-schema.md, authoring.md, execution.md)
+
 - **engine/**: Workflow execution orchestration
   - `workflow.py` - Main `WorkflowEngine` class that orchestrates agent execution, parallel groups, for-each groups, and routing
   - `context.py` - `WorkflowContext` manages accumulated agent outputs with three modes: accumulate, last_only, explicit
@@ -127,6 +131,7 @@ make validate-examples    # validate all examples
 - **Route evaluation**: First matching `when` condition wins; no `when` = always matches
 - **Tool resolution**: `null` = all workflow tools, `[]` = none, `[list]` = subset
 - **Reasoning effort**: `runtime.default_reasoning_effort` sets a workflow-wide default; per-agent `reasoning.effort` overrides it. Allowed values: `low`, `medium`, `high`, `xhigh`. Each provider translates the unified value to its native API (Copilot: `reasoning_effort` on the session, validated against the model's `supported_reasoning_efforts`; Claude: extended thinking with budget mapping low=2048, medium=8192, high=16384, xhigh=32768 tokens, with `temperature` coerced to 1.0 and `max_tokens` bumped to fit the budget). See `examples/reasoning-effort.yaml`.
+- **Conductor Expert**: `runtime.conductor_expert: true` sets a workflow-wide default; per-agent `conductor_expert: true/false` overrides it (tri-state: `null` = inherit, `true` = enable, `false` = disable). When enabled, the bundled Conductor knowledge base (~70KB of YAML schema, execution model, and authoring patterns from `src/conductor/expert/knowledge/`) is prepended to the agent's prompt inside `<conductor_knowledge>` tags. Only applies to provider-backed agents (`type: agent` or default). See `examples/conductor-expert.yaml`.
 
 ## Tests Structure
 
@@ -138,6 +143,7 @@ Tests mirror source structure in `tests/`:
 - `test_providers/` - Provider implementation tests
 - `test_integration/` - Full workflow execution tests
 - `test_gates/` - Human gate tests
+- `test_expert/` - Conductor Expert knowledge base tests
 
 Use `pytest.mark.performance` for performance tests (exclude with `-m "not performance"`).
 
