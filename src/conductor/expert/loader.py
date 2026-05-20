@@ -53,7 +53,13 @@ def load_expert_knowledge() -> str:
 
     for name in _KNOWLEDGE_DOCS:
         resource = knowledge_pkg / name
-        text = resource.read_text(encoding="utf-8").strip()
+        try:
+            text = resource.read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, OSError, UnicodeDecodeError) as e:
+            raise RuntimeError(
+                f"Conductor Expert knowledge file '{name}' is missing or unreadable. "
+                "This usually indicates a broken install; try reinstalling conductor."
+            ) from e
         if text:
             sections.append(f"# Knowledge: {name}\n\n{text}")
 

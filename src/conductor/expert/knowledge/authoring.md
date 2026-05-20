@@ -20,6 +20,7 @@ workflow:
     max_agent_iterations: 50     # Max tool-use roundtrips per agent (1-500, optional)
     max_session_seconds: 120     # Wall-clock timeout per agent session (optional)
     default_reasoning_effort: medium  # Workflow-wide reasoning effort: low, medium, high, xhigh (optional)
+    conductor_expert: true           # Inject Conductor knowledge into all agents (default: false, optional)
 
   input:                         # Define workflow inputs
     param_name:
@@ -116,6 +117,10 @@ agents:
     reasoning:                   # Override runtime.default_reasoning_effort (optional)
       effort: high               # low, medium, high, or xhigh
 
+    conductor_expert: true       # Inject Conductor knowledge into this agent (optional, tri-state)
+                                 # null = inherit runtime.conductor_expert, true = force enable,
+                                 # false = force disable. Not allowed on script/human_gate/workflow.
+
     routes:                      # Where to go next
       - to: next_agent
 ```
@@ -147,6 +152,36 @@ agents:
 ```
 
 See `examples/reasoning-effort.yaml` for a complete example.
+
+### Conductor Expert Knowledge Base
+
+`conductor_expert` enables opt-in injection of Conductor's bundled knowledge base (~70KB) into agent prompts. This gives agents deep understanding of the YAML schema, execution model, authoring patterns, and CLI commands — enabling them to evaluate, improve, debug, or generate Conductor workflows.
+
+**Tri-state per-agent field:**
+- `null` (default) — inherit from `runtime.conductor_expert`
+- `true` — force enable, regardless of workflow default
+- `false` — force disable, regardless of workflow default
+
+**Workflow-wide default:** `runtime.conductor_expert: true` enables it for all provider-backed agents. Individual agents can override with `conductor_expert: false`.
+
+Not allowed on `script`, `human_gate`, or `workflow` agent types. The knowledge is injected between workspace instructions and the agent prompt, wrapped in `<conductor_knowledge>` tags.
+
+```yaml
+workflow:
+  runtime:
+    conductor_expert: true          # all agents get knowledge
+
+agents:
+  - name: workflow_reviewer
+    conductor_expert: true          # per-agent opt-in
+    prompt: "Review this workflow for correctness..."
+
+  - name: simple_agent
+    conductor_expert: false         # opt out even when runtime default is true
+    prompt: "Do something simple."
+```
+
+See `examples/conductor-expert.yaml` for a complete example.
 
 ## Routing Patterns
 

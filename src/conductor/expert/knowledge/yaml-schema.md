@@ -35,6 +35,7 @@ workflow:
     max_agent_iterations: integer   # Max tool-use roundtrips per agent (1-500, optional)
     max_session_seconds: float      # Wall-clock timeout per agent session in seconds (optional)
     default_reasoning_effort: string # Workflow-wide reasoning/thinking effort: low, medium, high, xhigh (optional)
+    conductor_expert: boolean       # Inject bundled Conductor knowledge into provider-backed agents (default: false)
     mcp_servers:                    # MCP server configurations
       <server_name>:
         type: string                # "stdio" (default), "http", or "sse"
@@ -151,6 +152,10 @@ agents:
     # Not allowed for script, human_gate, or workflow agent types.
     reasoning:
       effort: string                # low, medium, high, or xhigh
+
+    # Conductor Expert knowledge base (optional, only on provider-backed agents)
+    # Tri-state: null = inherit runtime.conductor_expert, true = enable, false = disable
+    conductor_expert: boolean       # Inject Conductor knowledge into this agent's prompt (optional)
 
     # Per-agent retry policy (optional, not allowed for script, human_gate, or workflow agents)
     retry:

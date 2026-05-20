@@ -63,6 +63,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/conductor"]
+artifacts = ["src/conductor/expert/knowledge/*.md"]
 exclude = [
     "src/conductor/web/frontend",
 ]
