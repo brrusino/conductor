@@ -39,7 +39,6 @@ workflow:
 agents:
   - name: reviewer
     description: Reviews a Conductor workflow for correctness and best practices
-    model: gpt-5.2
     # This agent gets the full Conductor knowledge base injected
     conductor_expert: true
     prompt: |
