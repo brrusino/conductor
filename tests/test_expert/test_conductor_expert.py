@@ -74,6 +74,20 @@ class TestLoadExpertKnowledge:
         size_kb = len(result.encode("utf-8")) / 1024
         assert size_kb > 50, f"Expected >50KB, got {size_kb:.1f}KB"
 
+    def test_raises_on_missing_knowledge_file(self) -> None:
+        """Raises RuntimeError with reinstall guidance when a doc is missing."""
+        from unittest.mock import patch
+
+        load_expert_knowledge.cache_clear()
+
+        original_fn = load_expert_knowledge.__wrapped__
+
+        with patch("conductor.expert.loader._KNOWLEDGE_DOCS", ["nonexistent-doc.md"]):
+            with pytest.raises(RuntimeError, match="missing or unreadable"):
+                original_fn()
+
+        load_expert_knowledge.cache_clear()
+
 
 # ---------------------------------------------------------------------------
 # Schema tests — AgentDef.conductor_expert
