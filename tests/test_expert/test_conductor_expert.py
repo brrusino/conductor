@@ -82,9 +82,11 @@ class TestLoadExpertKnowledge:
 
         original_fn = load_expert_knowledge.__wrapped__
 
-        with patch("conductor.expert.loader._KNOWLEDGE_DOCS", ["nonexistent-doc.md"]):
-            with pytest.raises(RuntimeError, match="missing or unreadable"):
-                original_fn()
+        with (
+            patch("conductor.expert.loader._KNOWLEDGE_DOCS", ["nonexistent-doc.md"]),
+            pytest.raises(RuntimeError, match="missing or unreadable"),
+        ):
+            original_fn()
 
         load_expert_knowledge.cache_clear()
 
